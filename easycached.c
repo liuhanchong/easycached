@@ -6,6 +6,7 @@
 #include <sys/resource.h>
 #include <fcntl.h>
 #include <pthread.h>
+#include "slab.h"
 
 //函数的返回值类型
 #define SUCCESS 1
@@ -25,15 +26,17 @@
 
 struct Config
 {
-	double dMemCachedSize; /*MB为单位*/
+	int nMemCachedSize; /*MB为单位*/
 	char *sSockIp;//套接字IP 
 	int nPort;//监听端口
 	int nSockType;//1-tcp 2-udp
 	int nThreadNumber;//处理任务的线程数
 	BOOL bDaemonize;//守护进程
-	int nChunkSize;//每一个块内存大小
+	int nChunkSize;//每一个块放入的数据大小
 	BOOL bSysCore;//修改进程的资源限制
 	BOOL bLog;//打开运行日志
+	int nPageSize;//每一个页的大小
+	float fFactor;//增长因子
 };
 
 typedef struct Config Config;
@@ -66,7 +69,7 @@ static int nThreadCount = 0;
 static void DefaultConfig()
 {
 	//默认初始化
-	config.dMemCachedSize = 64.0;
+	config.nMemCachedSize = 64;
 	config.sSockIp = INDRR_ANY;
 	config.nPort = 6688;
 	config.nSockType = 1;
@@ -76,6 +79,8 @@ static void DefaultConfig()
 	config.bSysCore = FALSE;
 	config.nMaxConn = 1024;
 	config.bLog = TRUE;
+	config.nPageSize = ALIGN_MEM(48);
+	config.fFactor = 1.25;
 }
 
 static void InitConfig(int argc, char **argv)
@@ -94,13 +99,15 @@ static void InitConfig(int argc, char **argv)
 			"o"//修改进程资源限制
 			"n"//最大连接数
 			"l"//关闭日志
+			"P"//每页大小
+			"f"//增长因子
 			)) != -1)
 	{
 		switch (nOpt)
 		{
 			case 'm':
-				config.dMemCachedSize = atof(optarg);
-				if (config.dMemCachedSize <= 0)
+				config.nMemCachedSize = atoi(optarg);
+				if (config.nMemCachedSize <= 0)
 				{
 					fprintf(stderr, "选项%c的参数是无效的参数\n", nOpt);
 					exit(EXIT_SUCCESS);
@@ -146,6 +153,14 @@ static void InitConfig(int argc, char **argv)
 				
 			case 'l':
 				config.bLog = FALSE;
+				break;
+
+			case 'P':
+				config.nPageSize = atoi(optarg);//B为单位
+				break;
+
+			case 'f':
+				config.fFactor = atof(optarg);
 				break;
 			
 			default:
