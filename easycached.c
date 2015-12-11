@@ -5,6 +5,7 @@
 #include <string.h>
 #include <sys/resource.h>
 #include <fcntl.h>
+#include <pthread.h>
 
 //函数的返回值类型
 #define SUCCESS 1
@@ -18,6 +19,7 @@
 #define MB 1024 * KB
 
 //BOOL 类型
+#define BOOL int
 #define TRUE 1
 #define FALSE 0
 
@@ -36,6 +38,30 @@ struct Config
 
 typedef struct Config Config;
 static Config config;
+
+struct Connection
+{
+	int nFd;
+	Connection *pNext;
+};
+
+struct Thread 
+{
+	pthread_t threadId;
+	BOOL bExit;
+	Connection *pConnQueue;
+	Connection *pTail;
+	pthread_mutex_t queueMutex;
+};
+
+typedef struct Thread Thread;
+typedef struct Connection Connection;
+static Thread *pThreadArray = NULL;
+static int nLoadBalanceIndex = 0;
+
+//确保所有线程已初始化
+static pthread_mutex_t init_thread_mutex;
+static int nThreadCount = 0;
 
 static void DefaultConfig()
 {
@@ -228,6 +254,95 @@ static void Daemonize()
 	}
 }
 
+static void *EventProcess(void *pArg)
+{
+	Thread *pThread = (Thread *)pArg;
+
+	//初始化参数
+	pThread->bExit = FALSE;
+	pThread->pConnQueue = NULL;
+	pThread->pTail = NULL;
+	pThread->threadId = pthread_self();
+
+	pthread_mutexattr_t mutexAttr;
+	pthread_mutexattr_init(&pThread->queueMutex); 
+	if (pthread_mutex_init(&pThread->queueMutex, &mutexAttr) != 0)
+	{
+		fprintf(stderr, "%s\n", "初始化线程队列互斥锁失败");
+		pthread_exit("线程失败");
+	}
+
+	pthread_mutex_lock(&init_thread_mutex);
+	nThreadCount++;
+	pthread_mutex_unlock(&init_thread_mutex);
+
+	while (!pThread->bExit)
+	{
+		//循环处理消息
+	}
+	return NULL;
+}
+
+static void InitThread(int nThreadNumber)
+{
+	if (nThreadNumber <= 0)
+	{
+		fprintf(stderr, "%s\n", "创建worker线程的数量不能小于0");
+		exit(EXIT_FAILED);
+	}
+
+	pThreadArray = malloc(sizeof(Thread) * nThreadNumber);
+	if (!pThreadArray)
+	{
+		fprintf(stderr, "%s\n", "线程创建失败");
+		exit(EXIT_FAILED);	
+	}
+
+	pthread_mutexattr_t mutexAttr;
+	pthread_mutexattr_init(&mutexAttr); 
+	if (pthread_mutex_init(&init_thread_mutex, &mutexAttr) != 0)
+	{
+		fprintf(stderr, "%s\n", "初始化线程互斥锁失败");
+		exit(EXIT_FAILED);
+	}
+
+	pthread_attr_t threadAttr;
+	pthread_t thId;
+	（void）pthread_attr_init(&threadAttr);
+	for (int i = 0; i < nThreadNumber; i++)
+	{
+		if (thread_create(&thId, &threadAttr, EventProcess, (void *)pThreadArray[i]) != 0)
+		{
+			fprintf(stderr, "创建线程%s失败\n", i + 1);
+		}
+	}
+
+	while (!(nThreadCount == nThreadNumber));
+}
+
+static void PushConnection(Connection *pConn, int nThreadNumber)
+{
+	if (!pConn)
+	{
+		fprintf(stderr, "%s\n", "不能将空连接加入");
+		return;
+	}
+
+	Thread *pThread = pThreadArray[nLoadBalanceIndex++];
+	if (pThread)
+	{
+		pthread_mutex_lock(&pThread->queueMutex);
+		((!pThread->pConnQueue) ? pThread->pConnQueue : pThread->pTail->pNext) = pConn;
+		pThread->pTail = pConn;
+		pthread_mutex_unlock(&pThread->queueMutex);
+
+		//加入事件
+	}
+
+	//将负载均衡索引下移
+	nLoadBalanceIndex = nLoadBalanceIndex % nThreadNumber;
+}
+
 int main(int argc, char **argv)
 {
 	//将所有的错误信息不用缓存即可打印出来
@@ -240,13 +355,13 @@ int main(int argc, char **argv)
 	CoreResource();
 	
 	//开启守护进程
-	if (bDaemonize)
+	if (config.bDaemonize)
 	{
 		Daemonize();
 	}
 	
 	//开启线程
-	InitThread();
+	InitThread(config.nThreadNumber);
 	
 	return 0;
 }
