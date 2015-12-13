@@ -75,11 +75,11 @@ static void DefaultConfig()
 	config.nSockType = 1;
 	config.nThreadNumber = 4;
 	config.bDaemonize = FALSE;
-	config.nChunkSize = 40;
+	config.nChunkSize = ALIGN_MEM(48);
 	config.bSysCore = FALSE;
 	config.nMaxConn = 1024;
 	config.bLog = TRUE;
-	config.nPageSize = ALIGN_MEM(48);
+	config.nPageSize = 1;
 	config.fFactor = 1.25;
 }
 
@@ -89,17 +89,17 @@ static void InitConfig(int argc, char **argv)
 	
 	int nOpt = 0;
 	while ((nOpt = getopt(argc, argv, 
-			"m:"//分配的内存大小
+			"m:"//分配的内存大小 M
 			"i:"//socket ip
 			"p:"//端口号
 			"s:"//socket 类型 1-tcp 2-udp
 			"t:"//处理任务线程数
 			"d"//是否运行为守护进程
-			"c:"//块大小
+			"c:"//块大小 B
 			"o"//修改进程资源限制
 			"n"//最大连接数
 			"l"//关闭日志
-			"P"//每页大小
+			"P"//每页大小 M
 			"f"//增长因子
 			)) != -1)
 	{
@@ -140,7 +140,7 @@ static void InitConfig(int argc, char **argv)
 				break;
 				
 			case 'c':
-				config.nChunkSize = atoi(optarg);
+				config.nChunkSize = ALIGN_MEM(atoi(optarg));
 				break;
 				
 			case 'o':
@@ -156,7 +156,7 @@ static void InitConfig(int argc, char **argv)
 				break;
 
 			case 'P':
-				config.nPageSize = atoi(optarg);//B为单位
+				config.nPageSize = atoi(optarg);//M为单位
 				break;
 
 			case 'f':
