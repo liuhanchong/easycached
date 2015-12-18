@@ -379,6 +379,11 @@ int InitHash(int nOffset)
 
 int PushHash(Item *pItem)
 {
+	if (PushItem(Item *pItem) != 1)
+	{
+		return 0;
+	}
+
 	uint32_t hashKey = HashKey(pItem->pKey, strlen(pItem->nKeySize), 0);
 	haskKey = hashKey & HashMask(hashTable.nOffset);
 	Item *pHead = hashTable.pHashTable[hashKey];
@@ -451,6 +456,6 @@ int DeleteHash(const char *pKey, int nSize)
 
 int ExpandHash(int nOffset)
 {
-	
+
 }
 
